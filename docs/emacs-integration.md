@@ -82,8 +82,9 @@ liberime 自编模块直连 librime 的原始方式。userdb 内容不受影响�
 
 ## 已知限制
 
-- `liberime-sync-user-data` 如实返回失败(librime 的 sync 会销毁所有实例的会话,
-  跨实例编排尚未实现)。
+- `liberime-sync-user-data` 是**异步**语义:返回 `t` 表示已排队;daemon 等到所有实例
+  空闲(无未上屏输入 + 2 秒无按键)才真正执行,完成经 deploy 通知广播。命令行入口:
+  `rime-cli sync --user-data-dir <dir>`。
 - daemon 不自动退出;需要时 `rime-cli shutdown --user-data-dir <dir>`。
 - 仅覆盖 liberime 的 API 使用面;其他 librime 前端接入前需先审计其 API 面
   (未实现的 API 槽位为 NULL)。

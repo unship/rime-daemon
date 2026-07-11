@@ -185,6 +185,10 @@ struct Worker {
     notif_rx: Receiver<Notify>,
     state: ServerState,
     global: GlobalState,
+    /// 异步 sync:记住请求,静默窗口(无 composition + 一段无按键)才执行
+    sync_requested: bool,
+    sync_attempts: u32,
+    last_engine_op: std::time::Instant,
     // conn ⇄ session/config-handle 映射;连接断开即销毁
     sessions: HashMap<u64, ConnId>,
     conn_sessions: HashMap<ConnId, Vec<u64>>,
@@ -252,6 +256,9 @@ fn worker_main(opts: ServeOpts, job_rx: Receiver<Job>, conns: &'static Conns, so
         notif_rx,
         state,
         global: GlobalState { schema: None, options: HashMap::new() },
+        sync_requested: false,
+        sync_attempts: 0,
+        last_engine_op: std::time::Instant::now(),
         sessions: HashMap::new(),
         conn_sessions: HashMap::new(),
         configs: HashMap::new(),
@@ -269,6 +276,7 @@ fn worker_main(opts: ServeOpts, job_rx: Receiver<Job>, conns: &'static Conns, so
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
         w.drain_notifications(None, &mut Vec::new());
+        w.try_pending_sync();
     }
 }
 
@@ -299,6 +307,14 @@ impl Worker {
                 capi!(self.api, finalize);
                 std::process::exit(0);
             }
+            Op::SyncUserData => {
+                // 异步语义:立即确认"已排队",静默窗口再执行(Maintenancing 期间也可排队)
+                self.sync_requested = true;
+                self.sync_attempts = 0;
+                eprintln!("[rime-daemon] user-data sync scheduled by conn {conn}");
+                self.respond(conn, id, OpResult::Bool(true), Vec::new());
+                return;
+            }
             _ => {}
         }
         if self.state == ServerState::Maintenancing {
@@ -312,9 +328,50 @@ impl Worker {
 
         let op_session = op_session_id(&op);
         let result = self.dispatch(conn, &op);
+        self.last_engine_op = std::time::Instant::now();
         let mut sync_notifs = Vec::new();
         self.drain_notifications(op_session, &mut sync_notifs);
         self.respond(conn, id, result, sync_notifs);
+    }
+
+    /// 延迟 sync 的执行时机:Ready + 2s 无引擎调用 + 所有 session 无未上屏输入。
+    /// librime 的 sync_user_data 会 CleanupAllSessions —— 我们先自己销毁并同步账本,
+    /// 客户端经 find_session=False 自愈重建(liberime 的 _ensure_session);
+    /// 半截输入已确认不存在,所以自愈无用户可见损失。
+    fn try_pending_sync(&mut self) {
+        if !self.sync_requested || self.state != ServerState::Ready {
+            return;
+        }
+        if self.last_engine_op.elapsed() < Duration::from_secs(2) {
+            return;
+        }
+        let api = self.api;
+        for sid in self.sessions.keys() {
+            let mut st = rime_struct!(rs::RimeStatus);
+            if capi!(api, get_status, *sid as rs::RimeSessionId, &mut st) != 0 {
+                let composing = st.is_composing != 0;
+                capi!(api, free_status, &mut st);
+                if composing {
+                    return; // 有人打到一半,等下一个静默窗口
+                }
+            }
+        }
+        self.sync_attempts += 1;
+        eprintln!("[rime-daemon] executing deferred user-data sync (attempt {})", self.sync_attempts);
+        for (sid, _) in std::mem::take(&mut self.sessions) {
+            capi!(api, destroy_session, sid as rs::RimeSessionId);
+        }
+        self.conn_sessions.clear();
+        if capi!(api, sync_user_data) != 0 {
+            // deployer 线程接手;完成经 deploy 通知置回 Ready 并广播
+            self.state = ServerState::Maintenancing;
+            self.sync_requested = false;
+            self.sync_attempts = 0;
+        } else if self.sync_attempts >= 3 {
+            eprintln!("[rime-daemon] sync failed to start after 3 attempts; giving up");
+            self.sync_requested = false;
+            self.sync_attempts = 0;
+        }
     }
 
     fn respond(&self, conn: ConnId, id: u64, result: OpResult, sync_notifications: Vec<Notify>) {
@@ -326,7 +383,7 @@ impl Worker {
     fn dispatch(&mut self, conn: ConnId, op: &Op) -> OpResult {
         let api = self.api;
         match op {
-            Op::Hello { .. } | Op::Shutdown => unreachable!(),
+            Op::Hello { .. } | Op::Shutdown | Op::SyncUserData => unreachable!(),
             Op::CreateSession => {
                 let sid = capi!(api, create_session) as u64;
                 if sid == 0 {

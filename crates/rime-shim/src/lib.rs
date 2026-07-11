@@ -113,33 +113,43 @@ fn ensure_client(st: &mut ShimState) -> Option<Client> {
         }
         cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()
     };
-    match connect_or_spawn(&sock, spawn, Duration::from_secs(20)) {
-        Ok(client) => {
-            LOGGED_DEAD.store(false, Ordering::SeqCst);
-            match client.call_timeout(Op::Hello { proto_ver: PROTO_VER }, CALL_TIMEOUT) {
-                Ok(r) => match r.result {
-                    OpResult::HelloOk { server_rime_ver, .. } => {
-                        log(&format!("connected to rime-daemon (librime {server_rime_ver})"));
-                    }
-                    other => {
-                        log(&format!("hello rejected: {other:?}"));
-                        return None;
-                    }
-                },
-                Err(e) => {
-                    log(&format!("hello failed: {e}"));
+    // 至多两轮:第一轮若撞上旧协议 daemon,发 Shutdown 接管(Shutdown 序号跨版本稳定),
+    // 下一轮 spawn 新版重连 —— brew 升级后无需手动清理旧 daemon。
+    for attempt in 0..2 {
+        let client = match connect_or_spawn(&sock, &spawn, Duration::from_secs(20)) {
+            Ok(c) => c,
+            Err(e) => {
+                log(&format!("cannot reach rime-daemon: {e}"));
+                return None;
+            }
+        };
+        LOGGED_DEAD.store(false, Ordering::SeqCst);
+        match client.call_timeout(Op::Hello { proto_ver: PROTO_VER }, CALL_TIMEOUT) {
+            Ok(r) => match r.result {
+                OpResult::HelloOk { server_rime_ver, .. } => {
+                    log(&format!("connected to rime-daemon (librime {server_rime_ver})"));
+                    start_pump(&client, st);
+                    st.client = Some(client.clone());
+                    return Some(client);
+                }
+                OpResult::Error(e) if e.contains("proto version mismatch") && attempt == 0 => {
+                    log("daemon speaks an older protocol; taking over (shutdown + respawn)");
+                    let _ = client.call_timeout(Op::Shutdown, CALL_TIMEOUT);
+                    std::thread::sleep(Duration::from_millis(300));
+                    continue;
+                }
+                other => {
+                    log(&format!("hello rejected: {other:?}"));
                     return None;
                 }
+            },
+            Err(e) => {
+                log(&format!("hello failed: {e}"));
+                return None;
             }
-            start_pump(&client, st);
-            st.client = Some(client.clone());
-            Some(client)
-        }
-        Err(e) => {
-            log(&format!("cannot reach rime-daemon: {e}"));
-            None
         }
     }
+    None
 }
 
 /// deploy 类异步通知 → 后台 pump 线程回调前端 handler(原库中它们本就来自别的线程)
@@ -406,10 +416,16 @@ unsafe extern "C" fn shim_cleanup_all_sessions() {
 }
 
 unsafe extern "C" fn shim_sync_user_data() -> rs::Bool {
-    // 危险全局 API:librime 的 SyncUserData 会 CleanupAllSessions(摧毁所有 client 会话)。
-    // S2 编排完成前如实拒绝,绝不盲转发。
-    log("sync_user_data rejected: would destroy all clients' sessions (S2 orchestration TODO)");
-    0
+    // 异步语义(proto v2):daemon 记住请求,等所有 session 空闲(无 composition +
+    // 短暂无按键)再执行 —— librime 的 sync 会销毁全部 session,静默窗口 + 客户端
+    // find_session 自愈使其对用户无感。返回 True 仅表示"已排队"。
+    match call(Op::SyncUserData) {
+        Some(OpResult::Bool(true)) => {
+            log("user-data sync scheduled; daemon will run it when all sessions are idle");
+            1
+        }
+        _ => 0,
+    }
 }
 
 // ---------------- session / 输入 ----------------

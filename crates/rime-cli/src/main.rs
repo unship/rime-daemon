@@ -19,11 +19,13 @@ fn main() {
     let rc = match cmd {
         "serve" => cmd_serve(&args[1..]),
         "probe" => cmd_probe(&args[1..]),
+        "sync" => cmd_sync(&args[1..]),
         "shutdown" => cmd_shutdown(&args[1..]),
         _ => {
             eprintln!(
                 "usage: rime-cli serve    --user-data-dir D [--shared-data-dir S]\n\
                         rime-cli probe    --user-data-dir D --keys nihao [--select N] [--all N] [--spawn]\n\
+                        rime-cli sync     --user-data-dir D\n\
                         rime-cli shutdown --user-data-dir D"
             );
             2
@@ -204,6 +206,31 @@ fn cmd_probe(args: &[String]) -> i32 {
 
     let _ = client.call(Op::DestroySession { session: sid });
     0
+}
+
+fn cmd_sync(args: &[String]) -> i32 {
+    match connect(args, false) {
+        Ok(client) => match client.call(Op::SyncUserData) {
+            Ok(r) => match r.result {
+                OpResult::Bool(true) => {
+                    eprintln!("[sync] scheduled; daemon will run it when all sessions are idle");
+                    0
+                }
+                other => {
+                    eprintln!("[sync] rejected: {other:?}");
+                    1
+                }
+            },
+            Err(e) => {
+                eprintln!("[sync] {e}");
+                1
+            }
+        },
+        Err(e) => {
+            eprintln!("[sync] {e}");
+            1
+        }
+    }
 }
 
 fn cmd_shutdown(args: &[String]) -> i32 {

@@ -60,7 +60,15 @@ emacs #1..N ── liberime-core ── librime.1.dylib(shim,纯 Rust)──unix
 | 直接转发 | process_key / get_context / get_commit / get_status / select_candidate_on_current_page / simulate_key_sequence / select_schema / get_schema_list … | RPC 到 daemon;liberime 使用面全保真 |
 | 本地虚拟化 | setup / initialize / finalize / set_notification_handler / cleanup_all_sessions | **finalize/cleanup 只作用于本 client**——盲转发会摧毁其他实例的会话 |
 | 句柄代理 | schema_open / user_config_open / config_get_* / config_set_* / config_close | daemon 侧句柄表;`config_get_cstring` 的返回指针在 close 前有效(shim 侧按句柄持有副本) |
-| 如实拒绝 | sync_user_data(librime 实现会 `CleanupAllSessions`,摧毁所有 client 会话)、register_module、通用 config_open | 返回失败并记日志,绝不假装成功 |
+| 异步改写 | sync_user_data | 见下"异步 sync";返回 True = 已排队 |
+| 如实拒绝 | register_module、通用 config_open | 返回失败并记日志,绝不假装成功 |
+
+**异步 sync(proto v2)**:librime 的 `RimeSyncUserData` 第一行就是 `CleanupAllSessions`
+——多客户端下盲转发等于摧毁所有实例的会话。改写为:daemon 记住请求,等到安全窗口
+(state Ready、≥2s 无引擎调用、且所有 session `is_composing == false`)才销毁全部
+session 并执行;客户端经 `find_session=False` 自愈重建(liberime `_ensure_session`),
+由于窗口保证无未上屏输入,自愈对用户无感。执行期间 op 回 Busy,完成经 deploy 通知
+广播。启动失败重试至多 3 个窗口后放弃并记日志。`rime-cli sync` 提供命令行入口。
 
 - **未实现槽位保持 NULL**:`RIME_API_AVAILABLE` 语义上等于"此 API 不可用"。注意:
   不检查可用性的调用方会解引用 NULL——接入 liberime 之外的前端前,必须先审计其使用面。
@@ -86,8 +94,11 @@ emacs #1..N ── liberime-core ── librime.1.dylib(shim,纯 Rust)──unix
   输入串不承诺恢复。
 - **超时**:client 每次 call 默认 5s 超时;超时/断连/Busy 一律映射为 rime API 的失败
   语义(`False`/空 struct)。
-- 尚未实现:空闲退出(daemon 常驻,`rime-cli shutdown` 手动停)、运行时 redeploy/sync
-  编排(需要"通知→销毁全部 session→维护→重建→重放"的序列)。
+- **版本接管**:Hello 要求 proto_ver 精确匹配;新 shim 撞上旧 daemon 时自动发
+  `Shutdown`(该 variant 序号跨版本稳定)请其优雅退出,随后 spawn 新版重连——
+  brew 升级后无需手动清理旧 daemon。
+- 尚未实现:空闲退出(daemon 常驻,`rime-cli shutdown` 手动停)、运行时全量 redeploy
+  编排(sync 已经以异步窗口方式实现,见 §4)。
 
 ## 6. 测试
 

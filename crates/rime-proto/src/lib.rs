@@ -4,7 +4,9 @@
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
 
-pub const PROTO_VER: u32 = 1;
+/// v2:追加 Op::SyncUserData(异步 sync)。Hello 要求精确匹配;
+/// 新 client 遇到旧 daemon 会发 Shutdown 接管(Shutdown 的 variant 序号跨版本稳定)。
+pub const PROTO_VER: u32 = 2;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Frame {
@@ -58,6 +60,10 @@ pub enum Op {
     ConfigSetString { handle: u64, key: String, value: String },
     /// 版本接管/手动停止:daemon 停止 accept、drain、退出
     Shutdown,
+    /// (v2)异步 sync:daemon 记住请求,等所有 session 空闲(无 composition、短暂无按键)
+    /// 后执行 librime 的 sync_user_data(它会销毁全部 session;客户端经 find_session 自愈)。
+    /// 立即回 Bool(true) 表示已排队;完成/失败经 deploy 通知广播。
+    SyncUserData,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
