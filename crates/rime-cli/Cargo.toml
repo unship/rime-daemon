@@ -1,0 +1,15 @@
+[package]
+name = "rime-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command line entry: serve / probe / shutdown"
+
+[[bin]]
+name = "rime-cli"
+path = "src/main.rs"
+
+[dependencies]
+rime-proto = { path = "../rime-proto" }
+rime-client = { path = "../rime-client" }
+rime-daemon = { path = "../rime-daemon" }

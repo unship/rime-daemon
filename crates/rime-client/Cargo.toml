@@ -1,0 +1,9 @@
+[package]
+name = "rime-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Blocking RPC client for rime-daemon with timeouts and lazy daemon spawn"
+
+[dependencies]
+rime-proto = { path = "../rime-proto" }

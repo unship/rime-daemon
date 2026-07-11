@@ -1,0 +1,10 @@
+[package]
+name = "rime-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wire protocol for rime-daemon (postcard frames, socket path derivation)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }

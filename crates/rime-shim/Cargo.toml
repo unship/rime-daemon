@@ -1,0 +1,16 @@
+[package]
+name = "rime-shim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ABI-compatible librime replacement (cdylib) forwarding to rime-daemon over a unix socket"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rime-proto = { path = "../rime-proto" }
+rime-client = { path = "../rime-client" }
+# 只用类型定义(布局与原库二进制一致),绝不打开 link feature —— 核心不变式
+rime-sys = { path = "../rime-sys" }
+libc = "0.2"

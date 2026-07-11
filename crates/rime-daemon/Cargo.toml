@@ -1,0 +1,11 @@
+[package]
+name = "rime-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The daemon: sole librime host, serializing all engine calls on one worker thread"
+
+[dependencies]
+rime-proto = { path = "../rime-proto" }
+rime-sys = { path = "../rime-sys" }
+libc = "0.2"

@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rime-proto",
+    "crates/rime-sys",
+    "crates/rime-client",
+    "crates/rime-daemon",
+    "crates/rime-shim",
+    "crates/rime-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+
+[profile.release]
+opt-level = 2
