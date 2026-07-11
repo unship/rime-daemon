@@ -48,6 +48,7 @@ librime;`user_data_dir` 必须在本地磁盘,LevelDB 与 flock 均不支持 NFS
 
 ```sh
 brew tap unship/rime
+brew trust unship/rime          # 新版 Homebrew 要求显式信任第三方 tap
 brew install rime-daemon        # 最新开发版:brew install --HEAD rime-daemon
 ```
 

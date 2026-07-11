@@ -4,6 +4,7 @@
 
 ```sh
 brew tap unship/rime
+brew trust unship/rime          # 新版 Homebrew 要求显式信任第三方 tap
 brew install rime-daemon
 ```
 
