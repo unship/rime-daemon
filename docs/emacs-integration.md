@@ -2,12 +2,9 @@
 
 ## 安装(Homebrew)
 
-Homebrew 要求 formula 位于 tap 中:
-
 ```sh
-brew tap-new "$USER/local" 2>/dev/null   # 一次性:建本地 tap
-cp Formula/rime-daemon.rb "$(brew --repository "$USER/local")/Formula/"
-brew install --HEAD "$USER/local/rime-daemon"
+brew tap unship/rime
+brew install rime-daemon
 ```
 
 安装产物(`$(brew --prefix)` 在 Apple Silicon 上是 `/opt/homebrew`):

@@ -46,17 +46,15 @@ librime;`user_data_dir` 必须在本地磁盘,LevelDB 与 flock 均不支持 NFS
 
 ## 安装(macOS,Homebrew)
 
-Homebrew 要求 formula 位于 tap 中(不再接受散装 formula 文件):
-
 ```sh
-brew tap-new "$USER/local" 2>/dev/null   # 一次性:建本地 tap
-cp Formula/rime-daemon.rb "$(brew --repository "$USER/local")/Formula/"
-brew install --HEAD "$USER/local/rime-daemon"
+brew tap unship/rime
+brew install rime-daemon        # 最新开发版:brew install --HEAD rime-daemon
 ```
 
 装好即得:PATH 上的 `rime-cli`、shim、以及**对着 shim 编译好的 liberime Emacs 模块**
 (全部在稳定的 `$(brew --prefix)/opt/rime-daemon/` 路径下)。Emacs 侧只需两行配置指向
 brew 路径 —— 见 **[docs/emacs-integration.md](docs/emacs-integration.md)**。
+formula 维护在 [unship/homebrew-rime](https://github.com/unship/homebrew-rime)。
 
 验证 daemon 链路:
 
