@@ -39,7 +39,6 @@ struct ShimState {
     next_vsession: usize,
     /// config 句柄 → 本 bracket 内 get_cstring 返回的字符串(close 时释放)
     config_strings: HashMap<u64, Vec<CString>>,
-    pump_started: bool,
 }
 
 static STATE: std::sync::LazyLock<Mutex<ShimState>> = std::sync::LazyLock::new(|| {
@@ -135,7 +134,16 @@ fn ensure_client(st: &mut ShimState) -> Option<Client> {
                 OpResult::Error(e) if e.contains("proto version mismatch") && attempt == 0 => {
                     log("daemon speaks an older protocol; taking over (shutdown + respawn)");
                     let _ = client.call_timeout(Op::Shutdown, CALL_TIMEOUT);
-                    std::thread::sleep(Duration::from_millis(300));
+                    drop(client);
+                    // 等旧 daemon 真正退出(大词典的 finalize 可达数秒);过早重连会再次
+                    // 撞上垂死进程 → 二次 mismatch → 放弃。socket 消失/拒连 = 退干净了。
+                    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+                    while std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(200));
+                        if Client::connect(&sock).is_err() {
+                            break;
+                        }
+                    }
                     continue;
                 }
                 other => {
@@ -152,14 +160,11 @@ fn ensure_client(st: &mut ShimState) -> Option<Client> {
     None
 }
 
-/// deploy 类异步通知 → 后台 pump 线程回调前端 handler(原库中它们本就来自别的线程)
-fn start_pump(client: &Client, st: &mut ShimState) {
+/// deploy 类异步通知 → 后台 pump 线程回调前端 handler(原库中它们本就来自别的线程)。
+/// 每个 client 一个 pump 线程:旧 client 断开 → 其 sender drop → 旧线程自然退出。
+fn start_pump(client: &Client, _st: &mut ShimState) {
     let (tx, rx) = std::sync::mpsc::channel::<Notify>();
     client.set_notify_sink(tx);
-    if st.pump_started {
-        return; // 旧 pump 线程随旧 client 的 sender drop 而退出,新 client 重挂 sink 即可
-    }
-    st.pump_started = true;
     std::thread::Builder::new()
         .name("rime-shim-pump".into())
         .spawn(move || {

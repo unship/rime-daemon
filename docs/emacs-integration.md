@@ -75,6 +75,13 @@ lsof -p <emacs 的 pid> | grep librime
 行为判据:多个 Emacs 实例同时输入正常、任一实例学的词在其他实例立即可见、
 打字时存在 `rime-cli serve` 进程。daemon 日志在 `<user_data_dir>/log/`。
 
+## 升级
+
+`brew upgrade rime-daemon` 后**重启 Emacs 实例**即可(shim 撞上旧 daemon 会自动接管换代)。
+不想重启的热切换有一个 dyld 细节:`module-load` 必须用**带版本的 Cellar 真实路径**
+(`realpath` 一下 opt 路径)——dlopen 按路径字符串去重,重复加载 opt 路径拿到的是进程里
+驻留的旧模块。
+
 ## 回退
 
 删除上面的 `liberime-module-file` / `liberime-auto-build` 设置,重启 Emacs,即恢复
