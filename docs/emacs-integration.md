@@ -77,10 +77,9 @@ lsof -p <emacs 的 pid> | grep librime
 
 ## 升级
 
-`brew upgrade rime-daemon` 后**重启 Emacs 实例**即可(shim 撞上旧 daemon 会自动接管换代)。
-不想重启的热切换有一个 dyld 细节:`module-load` 必须用**带版本的 Cellar 真实路径**
-(`realpath` 一下 opt 路径)——dlopen 按路径字符串去重,重复加载 opt 路径拿到的是进程里
-驻留的旧模块。
+`brew upgrade rime-daemon` 后**重启 Emacs 实例**(新 shim 撞上旧 daemon 会自动接管换代,
+无需手动清理)。不支持跨版本热切换:Homebrew 会把 keg 内所有 install name 重写为不带
+版本的 `opt/` 路径,dyld 按路径字符串去重,同一 Emacs 进程里旧 shim 镜像会一直被复用。
 
 ## 回退
 
