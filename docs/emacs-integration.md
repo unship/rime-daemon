@@ -3,9 +3,9 @@
 ## 安装(Homebrew)
 
 ```sh
-brew tap unship/rime
-brew trust unship/rime          # 新版 Homebrew 要求显式信任第三方 tap
-brew install rime-daemon
+brew tap unship/unships
+brew trust unship/unships          # 新版 Homebrew 要求显式信任第三方 tap
+brew install unship/unships/rime-daemon
 ```
 
 安装产物(`$(brew --prefix)` 在 Apple Silicon 上是 `/opt/homebrew`):
