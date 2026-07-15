@@ -3,9 +3,8 @@
 //! - 通知回调可能来自 deployer 线程(deploy/sync 类)→ 回调只投 channel,不碰共享状态
 //! - 先 bind socket 再初始化 librime:首次部署(可达 ~20s)期间业务 op 快速回 Busy
 use rime_proto::{
-    paths, write_frame, CandidateData, CommitData, CompositionData, ConfigKind, ContextData,
-    Frame, MenuData, Notify, Op, OpResult, Response, SchemaItem, ServerState, StatusData,
-    PROTO_VER,
+    paths, write_frame, CandidateData, CommitData, CompositionData, ConfigKind, ContextData, Frame,
+    MenuData, Notify, Op, OpResult, Response, SchemaItem, ServerState, StatusData, PROTO_VER,
 };
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -93,7 +92,9 @@ pub fn serve(opts: ServeOpts) -> io::Result<()> {
     eprintln!("[rime-daemon] listening on {}", sock.display());
 
     let (job_tx, job_rx) = channel::<Job>();
-    let conns: &'static Conns = Box::leak(Box::new(Conns { map: Mutex::new(HashMap::new()) }));
+    let conns: &'static Conns = Box::leak(Box::new(Conns {
+        map: Mutex::new(HashMap::new()),
+    }));
 
     let sock_for_worker = sock.clone();
     std::thread::Builder::new()
@@ -133,7 +134,14 @@ fn spawn_reader(mut stream: UnixStream, conn: ConnId, job_tx: Sender<Job>, conns
         loop {
             match rime_proto::read_frame(&mut stream) {
                 Ok(Frame::Request(req)) => {
-                    if job_tx.send(Job::Op { conn, id: req.id, op: req.op }).is_err() {
+                    if job_tx
+                        .send(Job::Op {
+                            conn,
+                            id: req.id,
+                            op: req.op,
+                        })
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -245,7 +253,11 @@ fn worker_main(opts: ServeOpts, job_rx: Receiver<Job>, conns: &'static Conns, so
 
     // False = 有变化才部署(True 是跳过检测强制全量,POC 的用法,勿沿用)
     let maintaining = capi!(api, start_maintenance, 0) != 0;
-    let state = if maintaining { ServerState::Maintenancing } else { ServerState::Ready };
+    let state = if maintaining {
+        ServerState::Maintenancing
+    } else {
+        ServerState::Ready
+    };
     eprintln!("[rime-daemon] librime initialized, state={state:?}");
 
     let ver = unsafe { cstr_to_string(capi!(api, get_version)) }.unwrap_or_default();
@@ -255,7 +267,10 @@ fn worker_main(opts: ServeOpts, job_rx: Receiver<Job>, conns: &'static Conns, so
         conns,
         notif_rx,
         state,
-        global: GlobalState { schema: None, options: HashMap::new() },
+        global: GlobalState {
+            schema: None,
+            options: HashMap::new(),
+        },
         sync_requested: false,
         sync_attempts: 0,
         last_engine_op: std::time::Instant::now(),
@@ -357,7 +372,10 @@ impl Worker {
             }
         }
         self.sync_attempts += 1;
-        eprintln!("[rime-daemon] executing deferred user-data sync (attempt {})", self.sync_attempts);
+        eprintln!(
+            "[rime-daemon] executing deferred user-data sync (attempt {})",
+            self.sync_attempts
+        );
         for (sid, _) in std::mem::take(&mut self.sessions) {
             capi!(api, destroy_session, sid as rs::RimeSessionId);
         }
@@ -375,8 +393,14 @@ impl Worker {
     }
 
     fn respond(&self, conn: ConnId, id: u64, result: OpResult, sync_notifications: Vec<Notify>) {
-        self.conns
-            .send_to(conn, Frame::Response(Response { id, result, sync_notifications }));
+        self.conns.send_to(
+            conn,
+            Frame::Response(Response {
+                id,
+                result,
+                sync_notifications,
+            }),
+        );
     }
 
     /// 串行调用 librime;所有 FFI 只发生在本线程
@@ -405,19 +429,33 @@ impl Worker {
                 }
                 OpResult::Bool(ok)
             }
-            Op::ProcessKey { session, keycode, mask } => OpResult::Bool(
-                capi!(api, process_key, *session as rs::RimeSessionId, *keycode, *mask) != 0,
+            Op::ProcessKey {
+                session,
+                keycode,
+                mask,
+            } => OpResult::Bool(
+                capi!(
+                    api,
+                    process_key,
+                    *session as rs::RimeSessionId,
+                    *keycode,
+                    *mask
+                ) != 0,
             ),
             Op::SimulateKeySequence { session, keys } => {
                 let ck = CString::new(keys.as_str()).unwrap_or_default();
                 OpResult::Bool(
-                    capi!(api, simulate_key_sequence, *session as rs::RimeSessionId, ck.as_ptr())
-                        != 0,
+                    capi!(
+                        api,
+                        simulate_key_sequence,
+                        *session as rs::RimeSessionId,
+                        ck.as_ptr()
+                    ) != 0,
                 )
             }
-            Op::CommitComposition { session } => OpResult::Bool(
-                capi!(api, commit_composition, *session as rs::RimeSessionId) != 0,
-            ),
+            Op::CommitComposition { session } => {
+                OpResult::Bool(capi!(api, commit_composition, *session as rs::RimeSessionId) != 0)
+            }
             Op::ClearComposition { session } => {
                 capi!(api, clear_composition, *session as rs::RimeSessionId);
                 OpResult::Bool(true)
@@ -437,9 +475,11 @@ impl Worker {
                     *index
                 ) != 0,
             ),
-            Op::GetCandidates { session, index, count } => {
-                self.get_candidates(*session, *index, *count)
-            }
+            Op::GetCandidates {
+                session,
+                index,
+                count,
+            } => self.get_candidates(*session, *index, *count),
             Op::GetSchemaList => self.get_schema_list(),
             Op::GetCurrentSchema { session } => {
                 let mut buf = [0 as c_char; 256];
@@ -459,7 +499,12 @@ impl Worker {
             Op::SelectSchema { session, schema_id } => {
                 let cid = CString::new(schema_id.as_str()).unwrap_or_default();
                 OpResult::Bool(
-                    capi!(api, select_schema, *session as rs::RimeSessionId, cid.as_ptr()) != 0,
+                    capi!(
+                        api,
+                        select_schema,
+                        *session as rs::RimeSessionId,
+                        cid.as_ptr()
+                    ) != 0,
                 )
             }
             Op::GetSyncDir => {
@@ -600,7 +645,8 @@ impl Worker {
             if !ctx.select_labels.is_null() && m.page_size > 0 {
                 for i in 0..m.page_size as usize {
                     let p = *ctx.select_labels.add(i);
-                    data.select_labels.push(cstr_to_string(p).unwrap_or_default());
+                    data.select_labels
+                        .push(cstr_to_string(p).unwrap_or_default());
                 }
             }
         }
@@ -733,7 +779,12 @@ impl Worker {
                         self.global.schema = Some(id.clone());
                         self.apply_to_others(n.session, |w, other| {
                             let cid = CString::new(id.as_str()).unwrap_or_default();
-                            capi!(w.api, select_schema, other as rs::RimeSessionId, cid.as_ptr());
+                            capi!(
+                                w.api,
+                                select_schema,
+                                other as rs::RimeSessionId,
+                                cid.as_ptr()
+                            );
                         });
                     }
                 }
@@ -748,7 +799,13 @@ impl Worker {
                         let v: rs::Bool = if on { 1 } else { 0 };
                         self.apply_to_others(n.session, |w, other| {
                             let cn = CString::new(name.as_str()).unwrap_or_default();
-                            capi!(w.api, set_option, other as rs::RimeSessionId, cn.as_ptr(), v);
+                            capi!(
+                                w.api,
+                                set_option,
+                                other as rs::RimeSessionId,
+                                cn.as_ptr(),
+                                v
+                            );
                         });
                     }
                 }
@@ -768,7 +825,12 @@ impl Worker {
     }
 
     fn apply_to_others(&mut self, source: u64, f: impl Fn(&Worker, u64)) {
-        let others: Vec<u64> = self.sessions.keys().copied().filter(|s| *s != source).collect();
+        let others: Vec<u64> = self
+            .sessions
+            .keys()
+            .copied()
+            .filter(|s| *s != source)
+            .collect();
         for other in others {
             f(self, other);
         }

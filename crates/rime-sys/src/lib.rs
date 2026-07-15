@@ -1,7 +1,12 @@
 //! C++ librime 的 FFI 绑定(bindgen 自 rime_api.h 生成)。
 //! feature `link` 打开时链接 librime.dylib —— 只允许 daemon 打开;
 //! shim 仅使用这里的类型定义以保证与原库二进制布局一致。
-#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
+#![allow(
+    non_upper_case_globals,
+    non_camel_case_types,
+    non_snake_case,
+    dead_code
+)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 

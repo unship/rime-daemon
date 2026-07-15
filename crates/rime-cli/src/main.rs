@@ -35,7 +35,9 @@ fn main() {
 }
 
 fn flag(args: &[String], name: &str) -> Option<String> {
-    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned())
+    args.iter()
+        .position(|a| a == name)
+        .and_then(|i| args.get(i + 1).cloned())
 }
 
 fn has_flag(args: &[String], name: &str) -> bool {
@@ -63,7 +65,11 @@ fn cmd_serve(args: &[String]) -> i32 {
     let user = user_dir(args);
     let shared = match flag(args, "--shared-data-dir") {
         Some(s) => PathBuf::from(shellexpand_home(&s)),
-        None => match SHARED_DATA_CANDIDATES.iter().map(PathBuf::from).find(|p| p.exists()) {
+        None => match SHARED_DATA_CANDIDATES
+            .iter()
+            .map(PathBuf::from)
+            .find(|p| p.exists())
+        {
             Some(p) => p,
             None => {
                 eprintln!("no rime data dir found; pass --shared-data-dir");
@@ -75,8 +81,10 @@ fn cmd_serve(args: &[String]) -> i32 {
         eprintln!("shared data dir not found: {}", shared.display());
         return 1;
     }
-    match rime_daemon::serve(rime_daemon::ServeOpts { user_data_dir: user, shared_data_dir: shared })
-    {
+    match rime_daemon::serve(rime_daemon::ServeOpts {
+        user_data_dir: user,
+        shared_data_dir: shared,
+    }) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("serve failed: {e}");
@@ -109,10 +117,16 @@ fn connect(args: &[String], spawn_ok: bool) -> Result<Client, String> {
         Client::connect(&sock).map_err(|e| format!("connect {}: {e}", sock.display()))?
     };
     let hello = client
-        .call(Op::Hello { proto_ver: PROTO_VER })
+        .call(Op::Hello {
+            proto_ver: PROTO_VER,
+        })
         .map_err(|e| format!("hello: {e}"))?;
     match hello.result {
-        OpResult::HelloOk { server_rime_ver, state, .. } => {
+        OpResult::HelloOk {
+            server_rime_ver,
+            state,
+            ..
+        } => {
             eprintln!("[probe] connected: rime {server_rime_ver}, state={state:?}");
         }
         other => return Err(format!("unexpected hello result: {other:?}")),
@@ -148,17 +162,26 @@ fn cmd_probe(args: &[String]) -> i32 {
     };
     eprintln!("[probe] session={sid}");
 
-    let _ = client.call(Op::SimulateKeySequence { session: sid, keys: keys.clone() });
+    let _ = client.call(Op::SimulateKeySequence {
+        session: sid,
+        keys: keys.clone(),
+    });
     match client.call(Op::GetContext { session: sid }) {
         Ok(r) => match r.result {
             OpResult::Context(ctx) => {
-                println!("preedit: {}", ctx.composition.preedit.as_deref().unwrap_or(""));
+                println!(
+                    "preedit: {}",
+                    ctx.composition.preedit.as_deref().unwrap_or("")
+                );
                 for (i, c) in ctx.menu.candidates.iter().enumerate() {
                     println!(
                         "{}. {}{}",
                         i + 1,
                         c.text,
-                        c.comment.as_deref().map(|s| format!(" ({s})")).unwrap_or_default()
+                        c.comment
+                            .as_deref()
+                            .map(|s| format!(" ({s})"))
+                            .unwrap_or_default()
                     );
                 }
             }
@@ -169,10 +192,17 @@ fn cmd_probe(args: &[String]) -> i32 {
 
     if let Some(n) = flag(args, "--all") {
         let n: usize = n.parse().unwrap_or(20);
-        match client.call(Op::GetCandidates { session: sid, index: 0, count: n }) {
+        match client.call(Op::GetCandidates {
+            session: sid,
+            index: 0,
+            count: n,
+        }) {
             Ok(r) => {
                 if let OpResult::Candidates { list, exhausted } = r.result {
-                    println!("-- all candidates (n={} exhausted={exhausted}) --", list.len());
+                    println!(
+                        "-- all candidates (n={} exhausted={exhausted}) --",
+                        list.len()
+                    );
                     for (i, c) in list.iter().enumerate() {
                         println!("{}. {}", i + 1, c.text);
                     }
@@ -184,7 +214,10 @@ fn cmd_probe(args: &[String]) -> i32 {
 
     if let Some(sel) = flag(args, "--select") {
         let idx: usize = sel.parse().unwrap_or(0);
-        let _ = client.call(Op::SelectCandidateOnCurrentPage { session: sid, index: idx });
+        let _ = client.call(Op::SelectCandidateOnCurrentPage {
+            session: sid,
+            index: idx,
+        });
         // 选完可能直接上屏,取 commit
         match client.call(Op::GetCommit { session: sid }) {
             Ok(r) => {

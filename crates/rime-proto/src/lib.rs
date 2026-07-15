@@ -29,35 +29,105 @@ pub enum ConfigKind {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Op {
-    Hello { proto_ver: u32 },
+    Hello {
+        proto_ver: u32,
+    },
     CreateSession,
-    FindSession { session: u64 },
-    DestroySession { session: u64 },
-    ProcessKey { session: u64, keycode: i32, mask: i32 },
-    SimulateKeySequence { session: u64, keys: String },
-    CommitComposition { session: u64 },
-    ClearComposition { session: u64 },
-    GetContext { session: u64 },
-    GetCommit { session: u64 },
-    GetStatus { session: u64 },
-    GetInput { session: u64 },
-    SelectCandidateOnCurrentPage { session: u64, index: usize },
+    FindSession {
+        session: u64,
+    },
+    DestroySession {
+        session: u64,
+    },
+    ProcessKey {
+        session: u64,
+        keycode: i32,
+        mask: i32,
+    },
+    SimulateKeySequence {
+        session: u64,
+        keys: String,
+    },
+    CommitComposition {
+        session: u64,
+    },
+    ClearComposition {
+        session: u64,
+    },
+    GetContext {
+        session: u64,
+    },
+    GetCommit {
+        session: u64,
+    },
+    GetStatus {
+        session: u64,
+    },
+    GetInput {
+        session: u64,
+    },
+    SelectCandidateOnCurrentPage {
+        session: u64,
+        index: usize,
+    },
     /// 候选分块快照:从全局 index 起最多 count 个(shim 迭代器按块拉取)
-    GetCandidates { session: u64, index: usize, count: usize },
+    GetCandidates {
+        session: u64,
+        index: usize,
+        count: usize,
+    },
     GetSchemaList,
-    GetCurrentSchema { session: u64 },
-    SelectSchema { session: u64, schema_id: String },
+    GetCurrentSchema {
+        session: u64,
+    },
+    SelectSchema {
+        session: u64,
+        schema_id: String,
+    },
     GetSyncDir,
-    ConfigOpen { kind: ConfigKind, id: String },
-    ConfigClose { handle: u64 },
-    ConfigGetBool { handle: u64, key: String },
-    ConfigGetInt { handle: u64, key: String },
-    ConfigGetDouble { handle: u64, key: String },
-    ConfigGetString { handle: u64, key: String },
-    ConfigSetBool { handle: u64, key: String, value: bool },
-    ConfigSetInt { handle: u64, key: String, value: i32 },
-    ConfigSetDouble { handle: u64, key: String, value: f64 },
-    ConfigSetString { handle: u64, key: String, value: String },
+    ConfigOpen {
+        kind: ConfigKind,
+        id: String,
+    },
+    ConfigClose {
+        handle: u64,
+    },
+    ConfigGetBool {
+        handle: u64,
+        key: String,
+    },
+    ConfigGetInt {
+        handle: u64,
+        key: String,
+    },
+    ConfigGetDouble {
+        handle: u64,
+        key: String,
+    },
+    ConfigGetString {
+        handle: u64,
+        key: String,
+    },
+    ConfigSetBool {
+        handle: u64,
+        key: String,
+        value: bool,
+    },
+    ConfigSetInt {
+        handle: u64,
+        key: String,
+        value: i32,
+    },
+    ConfigSetDouble {
+        handle: u64,
+        key: String,
+        value: f64,
+    },
+    ConfigSetString {
+        handle: u64,
+        key: String,
+        value: String,
+    },
     /// 版本接管/手动停止:daemon 停止 accept、drain、退出
     Shutdown,
     /// (v2)异步 sync:daemon 记住请求,等所有 session 空闲(无 composition、短暂无按键)
@@ -74,14 +144,21 @@ pub enum ServerState {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum OpResult {
-    HelloOk { server_rime_ver: String, proto_ver: u32, state: ServerState },
+    HelloOk {
+        server_rime_ver: String,
+        proto_ver: u32,
+        state: ServerState,
+    },
     Session(u64),
     Bool(bool),
     Context(Box<ContextData>),
     Commit(Option<CommitData>),
     Status(Box<StatusData>),
     Str(Option<String>),
-    Candidates { list: Vec<CandidateData>, exhausted: bool },
+    Candidates {
+        list: Vec<CandidateData>,
+        exhausted: bool,
+    },
     SchemaList(Vec<SchemaItem>),
     ConfigHandle(u64),
     CfgBool(Option<bool>),
@@ -168,8 +245,8 @@ pub struct SchemaItem {
 
 /// 每帧 = u32 LE 长度前缀 + postcard 序列化的 Frame
 pub fn write_frame<W: Write>(w: &mut W, frame: &Frame) -> io::Result<()> {
-    let bytes = postcard::to_allocvec(frame)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let bytes =
+        postcard::to_allocvec(frame).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     w.write_all(&(bytes.len() as u32).to_le_bytes())?;
     w.write_all(&bytes)?;
     w.flush()
@@ -180,7 +257,10 @@ pub fn read_frame<R: Read>(r: &mut R) -> io::Result<Frame> {
     r.read_exact(&mut len_buf)?;
     let len = u32::from_le_bytes(len_buf) as usize;
     if len > 64 * 1024 * 1024 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame too large",
+        ));
     }
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)?;
@@ -230,13 +310,25 @@ mod tests {
     fn roundtrip() {
         let f = Frame::Request(Request {
             id: 7,
-            op: Op::ProcessKey { session: 42, keycode: 0x61, mask: 0 },
+            op: Op::ProcessKey {
+                session: 42,
+                keycode: 0x61,
+                mask: 0,
+            },
         });
         let mut buf = Vec::new();
         write_frame(&mut buf, &f).unwrap();
         let g = read_frame(&mut &buf[..]).unwrap();
         match g {
-            Frame::Request(Request { id: 7, op: Op::ProcessKey { session: 42, keycode: 0x61, mask: 0 } }) => {}
+            Frame::Request(Request {
+                id: 7,
+                op:
+                    Op::ProcessKey {
+                        session: 42,
+                        keycode: 0x61,
+                        mask: 0,
+                    },
+            }) => {}
             other => panic!("mismatch: {other:?}"),
         }
     }

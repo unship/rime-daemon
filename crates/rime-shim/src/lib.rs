@@ -42,7 +42,10 @@ struct ShimState {
 }
 
 static STATE: std::sync::LazyLock<Mutex<ShimState>> = std::sync::LazyLock::new(|| {
-    Mutex::new(ShimState { next_vsession: 1, ..Default::default() })
+    Mutex::new(ShimState {
+        next_vsession: 1,
+        ..Default::default()
+    })
 });
 
 struct Handler {
@@ -73,7 +76,8 @@ fn find_rime_cli() -> Option<PathBuf> {
         let mut info: libc::Dl_info = std::mem::zeroed();
         if libc::dladdr(rime_get_api as *const c_void, &mut info) != 0 && !info.dli_fname.is_null()
         {
-            let self_path = PathBuf::from(CStr::from_ptr(info.dli_fname).to_string_lossy().as_ref());
+            let self_path =
+                PathBuf::from(CStr::from_ptr(info.dli_fname).to_string_lossy().as_ref());
             if let Some(dir) = self_path.parent() {
                 let cand = dir.join("rime-cli");
                 if cand.exists() {
@@ -110,7 +114,9 @@ fn ensure_client(st: &mut ShimState) -> Option<Client> {
         if let Some(s) = &shared {
             cmd.arg("--shared-data-dir").arg(s);
         }
-        cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
     };
     // 至多两轮:第一轮若撞上旧协议 daemon,发 Shutdown 接管(Shutdown 序号跨版本稳定),
     // 下一轮 spawn 新版重连 —— brew 升级后无需手动清理旧 daemon。
@@ -123,10 +129,19 @@ fn ensure_client(st: &mut ShimState) -> Option<Client> {
             }
         };
         LOGGED_DEAD.store(false, Ordering::SeqCst);
-        match client.call_timeout(Op::Hello { proto_ver: PROTO_VER }, CALL_TIMEOUT) {
+        match client.call_timeout(
+            Op::Hello {
+                proto_ver: PROTO_VER,
+            },
+            CALL_TIMEOUT,
+        ) {
             Ok(r) => match r.result {
-                OpResult::HelloOk { server_rime_ver, .. } => {
-                    log(&format!("connected to rime-daemon (librime {server_rime_ver})"));
+                OpResult::HelloOk {
+                    server_rime_ver, ..
+                } => {
+                    log(&format!(
+                        "connected to rime-daemon (librime {server_rime_ver})"
+                    ));
                     start_pump(&client, st);
                     st.client = Some(client.clone());
                     return Some(client);
@@ -188,7 +203,10 @@ fn deliver_notification(n: &Notify) {
 
 fn reverse_vsession(daemon_sid: u64) -> Option<usize> {
     let st = STATE.lock().unwrap();
-    st.vsessions.iter().find(|(_, d)| **d == daemon_sid).map(|(v, _)| *v)
+    st.vsessions
+        .iter()
+        .find(|(_, d)| **d == daemon_sid)
+        .map(|(v, _)| *v)
 }
 
 /// 统一调用入口:转发 op,返回结果;同步通知在【调用者线程、返回前】回调(锁外)
@@ -378,11 +396,21 @@ unsafe extern "C" fn shim_start_maintenance(_full_check: rs::Bool) -> rs::Bool {
 
 unsafe extern "C" fn shim_is_maintenance_mode() -> rs::Bool {
     let mut st = STATE.lock().unwrap();
-    let Some(client) = ensure_client(&mut st) else { return 0 };
+    let Some(client) = ensure_client(&mut st) else {
+        return 0;
+    };
     drop(st);
-    match client.call_timeout(Op::Hello { proto_ver: PROTO_VER }, CALL_TIMEOUT) {
+    match client.call_timeout(
+        Op::Hello {
+            proto_ver: PROTO_VER,
+        },
+        CALL_TIMEOUT,
+    ) {
         Ok(r) => match r.result {
-            OpResult::HelloOk { state: ServerState::Maintenancing, .. } => 1,
+            OpResult::HelloOk {
+                state: ServerState::Maintenancing,
+                ..
+            } => 1,
             _ => 0,
         },
         Err(_) => 0,
@@ -449,12 +477,16 @@ unsafe extern "C" fn shim_create_session() -> rs::RimeSessionId {
 }
 
 unsafe extern "C" fn shim_find_session(vsession: rs::RimeSessionId) -> rs::Bool {
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     as_bool(call(Op::FindSession { session: did }))
 }
 
 unsafe extern "C" fn shim_destroy_session(vsession: rs::RimeSessionId) -> rs::Bool {
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     let r = as_bool(call(Op::DestroySession { session: did }));
     STATE.lock().unwrap().vsessions.remove(&(vsession as usize));
     r
@@ -465,20 +497,33 @@ unsafe extern "C" fn shim_process_key(
     keycode: c_int,
     mask: c_int,
 ) -> rs::Bool {
-    let Some(did) = resolve(vsession as usize) else { return 0 };
-    as_bool(call(Op::ProcessKey { session: did, keycode, mask }))
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
+    as_bool(call(Op::ProcessKey {
+        session: did,
+        keycode,
+        mask,
+    }))
 }
 
 unsafe extern "C" fn shim_simulate_key_sequence(
     vsession: rs::RimeSessionId,
     key_sequence: *const c_char,
 ) -> rs::Bool {
-    let Some(did) = resolve(vsession as usize) else { return 0 };
-    as_bool(call(Op::SimulateKeySequence { session: did, keys: cstr_arg(key_sequence) }))
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
+    as_bool(call(Op::SimulateKeySequence {
+        session: did,
+        keys: cstr_arg(key_sequence),
+    }))
 }
 
 unsafe extern "C" fn shim_commit_composition(vsession: rs::RimeSessionId) -> rs::Bool {
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     as_bool(call(Op::CommitComposition { session: did }))
 }
 
@@ -491,7 +536,9 @@ unsafe extern "C" fn shim_clear_composition(vsession: rs::RimeSessionId) {
 unsafe extern "C" fn shim_get_input(vsession: rs::RimeSessionId) -> *const c_char {
     // 原语义:返回 session 内部串的指针。shim 侧缓存一份(下次调用前有效)。
     static INPUT_CACHE: Mutex<Option<CString>> = Mutex::new(None);
-    let Some(did) = resolve(vsession as usize) else { return std::ptr::null() };
+    let Some(did) = resolve(vsession as usize) else {
+        return std::ptr::null();
+    };
     match call(Op::GetInput { session: did }) {
         Some(OpResult::Str(Some(s))) => {
             let c = CString::new(s).unwrap_or_default();
@@ -507,8 +554,13 @@ unsafe extern "C" fn shim_select_candidate_on_current_page(
     vsession: rs::RimeSessionId,
     index: usize,
 ) -> rs::Bool {
-    let Some(did) = resolve(vsession as usize) else { return 0 };
-    as_bool(call(Op::SelectCandidateOnCurrentPage { session: did, index }))
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
+    as_bool(call(Op::SelectCandidateOnCurrentPage {
+        session: did,
+        index,
+    }))
 }
 
 // ---------------- context / commit / status(data_size 自版本化回填) ----------------
@@ -520,7 +572,9 @@ unsafe extern "C" fn shim_get_context(
     if context.is_null() {
         return 0;
     }
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     let data = match call(Op::GetContext { session: did }) {
         Some(OpResult::Context(d)) => d,
         _ => return 0,
@@ -550,20 +604,24 @@ unsafe fn fill_context(data: &ContextData, ctx: &mut rs::RimeContext) {
         m.is_last_page = if data.menu.is_last_page { 1 } else { 0 };
         m.highlighted_candidate_index = data.menu.highlighted_candidate_index;
         m.num_candidates = data.menu.candidates.len() as c_int;
-        m.select_keys =
-            data.menu.select_keys.as_deref().map_or(std::ptr::null_mut(), |s| malloc_cstr(s));
+        m.select_keys = data
+            .menu
+            .select_keys
+            .as_deref()
+            .map_or(std::ptr::null_mut(), |s| malloc_cstr(s));
         if data.menu.candidates.is_empty() {
             m.candidates = std::ptr::null_mut();
         } else {
             let n = data.menu.candidates.len();
-            let arr = libc::calloc(n, std::mem::size_of::<rs::RimeCandidate>())
-                as *mut rs::RimeCandidate;
+            let arr =
+                libc::calloc(n, std::mem::size_of::<rs::RimeCandidate>()) as *mut rs::RimeCandidate;
             for (i, cand) in data.menu.candidates.iter().enumerate() {
                 let slot = &mut *arr.add(i);
                 slot.text = malloc_cstr(&cand.text);
-                slot.comment = cand.comment.as_deref().map_or(std::ptr::null_mut(), |s| {
-                    malloc_cstr(s)
-                });
+                slot.comment = cand
+                    .comment
+                    .as_deref()
+                    .map_or(std::ptr::null_mut(), |s| malloc_cstr(s));
                 slot.reserved = std::ptr::null_mut();
             }
             m.candidates = arr;
@@ -639,7 +697,9 @@ unsafe extern "C" fn shim_get_commit(
     if commit.is_null() {
         return 0;
     }
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     match call(Op::GetCommit { session: did }) {
         Some(OpResult::Commit(Some(c))) => {
             let out = &mut *commit;
@@ -671,7 +731,9 @@ unsafe extern "C" fn shim_get_status(
     if status.is_null() {
         return 0;
     }
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     let data = match call(Op::GetStatus { session: did }) {
         Some(OpResult::Status(d)) => d,
         _ => return 0,
@@ -679,12 +741,16 @@ unsafe extern "C" fn shim_get_status(
     let out = &mut *status;
     let ds = out.data_size;
     if has_member(ds, offset_of!(rs::RimeStatus, schema_id)) {
-        out.schema_id =
-            data.schema_id.as_deref().map_or(std::ptr::null_mut(), |s| malloc_cstr(s));
+        out.schema_id = data
+            .schema_id
+            .as_deref()
+            .map_or(std::ptr::null_mut(), |s| malloc_cstr(s));
     }
     if has_member(ds, offset_of!(rs::RimeStatus, schema_name)) {
-        out.schema_name =
-            data.schema_name.as_deref().map_or(std::ptr::null_mut(), |s| malloc_cstr(s));
+        out.schema_name = data
+            .schema_name
+            .as_deref()
+            .map_or(std::ptr::null_mut(), |s| malloc_cstr(s));
     }
     macro_rules! set_flag {
         ($field:ident) => {
@@ -729,7 +795,9 @@ unsafe extern "C" fn shim_get_current_schema(
     if schema_id.is_null() || buffer_size == 0 {
         return 0;
     }
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     match call(Op::GetCurrentSchema { session: did }) {
         Some(OpResult::Str(Some(s))) => {
             let bytes = s.as_bytes();
@@ -790,17 +858,29 @@ unsafe extern "C" fn shim_select_schema(
     vsession: rs::RimeSessionId,
     schema_id: *const c_char,
 ) -> rs::Bool {
-    let Some(did) = resolve(vsession as usize) else { return 0 };
-    as_bool(call(Op::SelectSchema { session: did, schema_id: cstr_arg(schema_id) }))
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
+    as_bool(call(Op::SelectSchema {
+        session: did,
+        schema_id: cstr_arg(schema_id),
+    }))
 }
 
 // ---------------- config(daemon 侧句柄表代理) ----------------
 
-unsafe fn config_open_impl(kind: ConfigKind, id: *const c_char, config: *mut rs::RimeConfig) -> rs::Bool {
+unsafe fn config_open_impl(
+    kind: ConfigKind,
+    id: *const c_char,
+    config: *mut rs::RimeConfig,
+) -> rs::Bool {
     if config.is_null() {
         return 0;
     }
-    match call(Op::ConfigOpen { kind, id: cstr_arg(id) }) {
+    match call(Op::ConfigOpen {
+        kind,
+        id: cstr_arg(id),
+    }) {
         Some(OpResult::ConfigHandle(h)) => {
             (*config).ptr = h as usize as *mut c_void;
             STATE.lock().unwrap().config_strings.insert(h, Vec::new());
@@ -847,7 +927,9 @@ unsafe extern "C" fn shim_config_open(
 }
 
 unsafe extern "C" fn shim_config_close(config: *mut rs::RimeConfig) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
     let r = as_bool(call(Op::ConfigClose { handle: h }));
     STATE.lock().unwrap().config_strings.remove(&h);
     (*config).ptr = std::ptr::null_mut();
@@ -859,11 +941,16 @@ unsafe extern "C" fn shim_config_get_bool(
     key: *const c_char,
     value: *mut rs::Bool,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
     if value.is_null() {
         return 0;
     }
-    match call(Op::ConfigGetBool { handle: h, key: cstr_arg(key) }) {
+    match call(Op::ConfigGetBool {
+        handle: h,
+        key: cstr_arg(key),
+    }) {
         Some(OpResult::CfgBool(Some(v))) => {
             *value = if v { 1 } else { 0 };
             1
@@ -877,11 +964,16 @@ unsafe extern "C" fn shim_config_get_int(
     key: *const c_char,
     value: *mut c_int,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
     if value.is_null() {
         return 0;
     }
-    match call(Op::ConfigGetInt { handle: h, key: cstr_arg(key) }) {
+    match call(Op::ConfigGetInt {
+        handle: h,
+        key: cstr_arg(key),
+    }) {
         Some(OpResult::CfgInt(Some(v))) => {
             *value = v;
             1
@@ -895,11 +987,16 @@ unsafe extern "C" fn shim_config_get_double(
     key: *const c_char,
     value: *mut f64,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
     if value.is_null() {
         return 0;
     }
-    match call(Op::ConfigGetDouble { handle: h, key: cstr_arg(key) }) {
+    match call(Op::ConfigGetDouble {
+        handle: h,
+        key: cstr_arg(key),
+    }) {
         Some(OpResult::CfgDouble(Some(v))) => {
             *value = v;
             1
@@ -914,11 +1011,16 @@ unsafe extern "C" fn shim_config_get_string(
     value: *mut c_char,
     buffer_size: usize,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
     if value.is_null() || buffer_size == 0 {
         return 0;
     }
-    match call(Op::ConfigGetString { handle: h, key: cstr_arg(key) }) {
+    match call(Op::ConfigGetString {
+        handle: h,
+        key: cstr_arg(key),
+    }) {
         Some(OpResult::Str(Some(s))) => {
             let bytes = s.as_bytes();
             let n = bytes.len().min(buffer_size - 1);
@@ -935,8 +1037,13 @@ unsafe extern "C" fn shim_config_get_cstring(
     key: *const c_char,
 ) -> *const c_char {
     // 原语义:返回 config 内部字符串指针,close 前有效 → shim 把副本挂在句柄上,close 时释放
-    let Some(h) = config_handle(config) else { return std::ptr::null() };
-    match call(Op::ConfigGetString { handle: h, key: cstr_arg(key) }) {
+    let Some(h) = config_handle(config) else {
+        return std::ptr::null();
+    };
+    match call(Op::ConfigGetString {
+        handle: h,
+        key: cstr_arg(key),
+    }) {
         Some(OpResult::Str(Some(s))) => {
             let c = CString::new(s).unwrap_or_default();
             let mut st = STATE.lock().unwrap();
@@ -953,8 +1060,14 @@ unsafe extern "C" fn shim_config_set_bool(
     key: *const c_char,
     value: rs::Bool,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
-    as_bool(call(Op::ConfigSetBool { handle: h, key: cstr_arg(key), value: value != 0 }))
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
+    as_bool(call(Op::ConfigSetBool {
+        handle: h,
+        key: cstr_arg(key),
+        value: value != 0,
+    }))
 }
 
 unsafe extern "C" fn shim_config_set_int(
@@ -962,8 +1075,14 @@ unsafe extern "C" fn shim_config_set_int(
     key: *const c_char,
     value: c_int,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
-    as_bool(call(Op::ConfigSetInt { handle: h, key: cstr_arg(key), value }))
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
+    as_bool(call(Op::ConfigSetInt {
+        handle: h,
+        key: cstr_arg(key),
+        value,
+    }))
 }
 
 unsafe extern "C" fn shim_config_set_double(
@@ -971,8 +1090,14 @@ unsafe extern "C" fn shim_config_set_double(
     key: *const c_char,
     value: f64,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
-    as_bool(call(Op::ConfigSetDouble { handle: h, key: cstr_arg(key), value }))
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
+    as_bool(call(Op::ConfigSetDouble {
+        handle: h,
+        key: cstr_arg(key),
+        value,
+    }))
 }
 
 unsafe extern "C" fn shim_config_set_string(
@@ -980,7 +1105,9 @@ unsafe extern "C" fn shim_config_set_string(
     key: *const c_char,
     value: *const c_char,
 ) -> rs::Bool {
-    let Some(h) = config_handle(config) else { return 0 };
+    let Some(h) = config_handle(config) else {
+        return 0;
+    };
     as_bool(call(Op::ConfigSetString {
         handle: h,
         key: cstr_arg(key),
@@ -1014,7 +1141,9 @@ unsafe extern "C" fn shim_candidate_list_from_index(
     if iterator.is_null() {
         return 0;
     }
-    let Some(did) = resolve(vsession as usize) else { return 0 };
+    let Some(did) = resolve(vsession as usize) else {
+        return 0;
+    };
     let start = index.max(0) as usize;
     let it = &mut *iterator;
     it.ptr = Box::into_raw(Box::new(IterState {
@@ -1070,8 +1199,9 @@ unsafe extern "C" fn shim_candidate_list_next(
     }
     let (text, comment) = &state.chunk[state.pos_in_chunk];
     it.candidate.text = text.as_ptr() as *mut c_char;
-    it.candidate.comment =
-        comment.as_ref().map_or(std::ptr::null_mut(), |c| c.as_ptr() as *mut c_char);
+    it.candidate.comment = comment
+        .as_ref()
+        .map_or(std::ptr::null_mut(), |c| c.as_ptr() as *mut c_char);
     it.index += 1;
     state.pos_in_chunk += 1;
     state.next_global_index += 1;
@@ -1117,8 +1247,16 @@ unsafe extern "C" fn shim_get_version() -> *const c_char {
         ensure_client(&mut st)
     };
     if let Some(client) = client {
-        if let Ok(r) = client.call_timeout(Op::Hello { proto_ver: PROTO_VER }, CALL_TIMEOUT) {
-            if let OpResult::HelloOk { server_rime_ver, .. } = r.result {
+        if let Ok(r) = client.call_timeout(
+            Op::Hello {
+                proto_ver: PROTO_VER,
+            },
+            CALL_TIMEOUT,
+        ) {
+            if let OpResult::HelloOk {
+                server_rime_ver, ..
+            } = r.result
+            {
                 *g = Some(CString::new(server_rime_ver).unwrap_or_default());
                 return g.as_ref().unwrap().as_ptr();
             }

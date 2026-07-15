@@ -9,6 +9,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Format
+        run: cargo fmt --all -- --check
       - name: Install librime (headers for bindgen, dylib for the daemon)
         run: brew install librime
       - name: Build

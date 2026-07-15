@@ -152,7 +152,9 @@ pub fn wait_ready(client: &Client, total_wait: Duration) -> io::Result<()> {
     let deadline = Instant::now() + total_wait;
     loop {
         let reply = client.call_timeout(
-            Op::Hello { proto_ver: rime_proto::PROTO_VER },
+            Op::Hello {
+                proto_ver: rime_proto::PROTO_VER,
+            },
             Duration::from_secs(2),
         );
         if let Ok(r) = &reply {
