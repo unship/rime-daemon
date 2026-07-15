@@ -136,12 +136,7 @@ fn ensure_client(st: &mut ShimState) -> Option<Client> {
             CALL_TIMEOUT,
         ) {
             Ok(r) => match r.result {
-                OpResult::HelloOk {
-                    server_rime_ver, ..
-                } => {
-                    log(&format!(
-                        "connected to rime-daemon (librime {server_rime_ver})"
-                    ));
+                OpResult::HelloOk { .. } => {
                     start_pump(&client, st);
                     st.client = Some(client.clone());
                     return Some(client);
