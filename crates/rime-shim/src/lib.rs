@@ -360,16 +360,33 @@ unsafe extern "C" fn shim_initialize(traits: *mut rs::RimeTraits) {
 
 unsafe extern "C" fn shim_finalize() {
     // 本地虚拟化:只断开自己。绝不转发(转发即摧毁其他 client 的会话)。
-    let mut st = STATE.lock().unwrap();
-    if let (Some(client), sids) = (st.client.clone(), st.vsessions.clone()) {
-        for (_, did) in sids {
-            let _ = client.call_timeout(Op::DestroySession { session: did }, CALL_TIMEOUT);
+    // This callback is called across the C ABI, where an unwinding Rust panic
+    // aborts the host process. Recover poisoned state and contain any panic
+    // from teardown so Emacs can still exit normally.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let (client, sids) = {
+            let mut st = STATE
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let client = st.client.take();
+            let sids = st.vsessions.drain().map(|(_, sid)| sid).collect::<Vec<_>>();
+            st.config_strings.clear();
+            (client, sids)
+        };
+
+        // Do socket I/O after releasing STATE: a concurrent notification may
+        // need the same lock while the daemon responds to these requests.
+        if let Some(client) = client {
+            for sid in sids {
+                let _ = client.call_timeout(Op::DestroySession { session: sid }, CALL_TIMEOUT);
+            }
         }
+    }));
+
+    match result {
+        Ok(()) => log("finalize: disconnected (daemon keeps running for other clients)"),
+        Err(_) => log("finalize: teardown panicked; suppressed at C ABI boundary"),
     }
-    st.client = None;
-    st.vsessions.clear();
-    st.config_strings.clear();
-    log("finalize: disconnected (daemon keeps running for other clients)");
 }
 
 unsafe extern "C" fn shim_set_notification_handler(
