@@ -36,6 +36,7 @@ emacs #1..N ── liberime-core ── librime.1.dylib(shim,纯 Rust)──unix
 - socket:`$XDG_RUNTIME_DIR/rime-daemon/`(Linux)或 `~/Library/Caches/rime-daemon/`
   (macOS)下,文件名 = user_data_dir 规范化路径的 FNV-64;目录 0700、socket 0600
   (键击流是敏感数据)。路径派生必须跨进程稳定,故不用 per-process 的 `$TMPDIR`。
+  若系统清理 socket 路径但 daemon 仍持锁,accept loop 会重建目录并重新 bind。
 
 ## 3. daemon(crates/rime-daemon)
 

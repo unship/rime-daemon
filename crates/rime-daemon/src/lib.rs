@@ -88,7 +88,8 @@ fn bind_socket(sock: &Path) -> io::Result<UnixListener> {
 pub fn serve(opts: ServeOpts) -> io::Result<()> {
     let _lock = acquire_singleton_lock(&opts.user_data_dir)?;
     let sock = paths::sock_path(&opts.user_data_dir);
-    let listener = bind_socket(&sock)?;
+    let mut listener = bind_socket(&sock)?;
+    listener.set_nonblocking(true)?;
     eprintln!("[rime-daemon] listening on {}", sock.display());
 
     let (job_tx, job_rx) = channel::<Job>();
@@ -103,9 +104,17 @@ pub fn serve(opts: ServeOpts) -> io::Result<()> {
         .expect("spawn rime worker");
 
     let mut next_conn: ConnId = 1;
-    for stream in listener.incoming() {
-        let stream = match stream {
-            Ok(s) => s,
+    loop {
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                if !sock.exists() {
+                    listener = bind_socket(&sock)?;
+                    listener.set_nonblocking(true)?;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
             Err(_) => continue,
         };
         let conn_id = next_conn;
@@ -116,7 +125,6 @@ pub fn serve(opts: ServeOpts) -> io::Result<()> {
         spawn_reader(stream, conn_id, job_tx.clone(), conns);
         eprintln!("[rime-daemon] conn {conn_id} connected");
     }
-    Ok(())
 }
 
 fn spawn_writer(mut stream: UnixStream, out_rx: Receiver<Frame>) {

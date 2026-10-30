@@ -126,7 +126,7 @@ pub fn connect_or_spawn(
     if let Ok(c) = Client::connect(sock) {
         return Ok(c);
     }
-    let mut child = Some(spawn()?);
+    let _child = spawn()?;
     let deadline = Instant::now() + total_wait;
     let mut backoff = Duration::from_millis(50);
     loop {
@@ -137,9 +137,6 @@ pub fn connect_or_spawn(
                     return Err(e);
                 }
                 // spawn 的进程可能立即退出(另一个 daemon 持锁)——继续等 socket 即可
-                if let Some(ch) = child.as_mut() {
-                    let _ = ch.try_wait();
-                }
                 std::thread::sleep(backoff);
                 backoff = (backoff * 2).min(Duration::from_millis(500));
             }
@@ -151,11 +148,13 @@ pub fn connect_or_spawn(
 pub fn wait_ready(client: &Client, total_wait: Duration) -> io::Result<()> {
     let deadline = Instant::now() + total_wait;
     loop {
+        let timeout =
+            Duration::from_secs(2).min(deadline.saturating_duration_since(Instant::now()));
         let reply = client.call_timeout(
             Op::Hello {
                 proto_ver: rime_proto::PROTO_VER,
             },
-            Duration::from_secs(2),
+            timeout,
         );
         if let Ok(r) = &reply {
             if let OpResult::HelloOk { state, .. } = &r.result {
